@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import re
 
-st.title("GPS, SDM & System Activity Visualizer")
+st.title("GPS, SDM, Network & Call Activity Visualizer")
 
 uploaded_files = st.file_uploader(
     "Upload up to 3 log files", type=["log", "txt"], accept_multiple_files=True
@@ -15,9 +15,9 @@ if uploaded_files:
     summary_data = []
     wifi_data = []
     sdm_data = []
-    wan_data = []
-    telemetry_data = []
-    call_data = []
+    lte_data = []
+    service_status_data = []
+    call_data = []  # <<< Додано для Call / Talkgroup
 
     for uploaded_file in uploaded_files:
         try:
@@ -30,13 +30,14 @@ if uploaded_files:
         last_gps_time = None
 
         for line in log_text.splitlines():
-            # --- GPS & WiFi RSSI ---
+            # --- GPS та WiFi ---
             if '{"status"' in line:
                 try:
                     json_part = line[line.index("{"):]
                     j = json.loads(json_part)
 
                     gps = j.get("gps", {})
+                    dt = None
                     if gps.get("fix") and "latitude" in gps and "longitude" in gps:
                         gps_points.append({
                             "lat": gps["latitude"],
@@ -44,32 +45,50 @@ if uploaded_files:
                             "file": uploaded_file.name
                         })
 
-                    # WiFi RSSI
-                    wlan = j.get("wlanAsClientStatus", {})
-                    rssi = wlan.get("rssi")
+                    # визначення часу
                     utc_time = gps.get("utc")
                     date = gps.get("date")
-                    if rssi is not None and utc_time and date:
+                    if utc_time and date:
                         try:
                             dt_str = f"{date} {utc_time}"
                             dt = datetime.strptime(dt_str, "%d%m%y %H%M%S.%f")
                             last_gps_time = dt
                         except Exception:
                             dt = last_gps_time
+                    else:
+                        dt = last_gps_time
+
+                    # WiFi RSSI
+                    wlan = j.get("wlanAsClientStatus", {})
+                    rssi = wlan.get("rssi")
+                    if rssi is not None and dt is not None:
                         wifi_data.append({
                             "time": dt,
                             "rssi": rssi,
                             "file": uploaded_file.name
                         })
 
-                    # WAN connectivity
-                    wan_in_use = j.get("status", {}).get("wanInUse")
-                    if dt:
-                        wan_data.append({
+                    # LTE CSQ
+                    lte_status = j.get("lteStatus", {})
+                    csq = lte_status.get("csq")
+                    if csq is not None and dt is not None:
+                        lte_data.append({
                             "time": dt,
-                            "wan": wan_in_use,
+                            "csq": csq,
                             "file": uploaded_file.name
                         })
+
+                    # Service status
+                    s_status = j.get("status", {})
+                    for svc in ["lte", "wifiAp", "eth", "gps"]:
+                        status_val = 1 if s_status.get(svc) else 0
+                        service_status_data.append({
+                            "time": dt,
+                            "service": svc,
+                            "status": status_val,
+                            "file": uploaded_file.name
+                        })
+
                 except Exception:
                     continue
 
@@ -77,10 +96,10 @@ if uploaded_files:
             if "SDM Data:" in line:
                 match = re.search(r"SDM Data: (>>|<<)\s*(.*)", line)
                 if match:
-                    direction = match.group(1)  # >> або <<
+                    direction = match.group(1)
                     hex_bytes = match.group(2).split()
                     byte_count = len(hex_bytes)
-                    timestamp = last_gps_time if last_gps_time else None
+                    timestamp = last_gps_time
                     sdm_data.append({
                         "time": timestamp,
                         "bytes": byte_count,
@@ -88,33 +107,21 @@ if uploaded_files:
                         "file": uploaded_file.name
                     })
 
-            # --- Telemetry send success/failure ---
-            if "SendRegHeartbeat" in line:
-                timestamp = last_gps_time
-                success = "SUCCESS" in line
-                telemetry_data.append({
-                    "time": timestamp,
-                    "success": int(success),
-                    "file": uploaded_file.name
-                })
-
-            if "handleRegHeartbeatResp" in line:
-                timestamp = last_gps_time
-                success = "SUCCESS" in line
-                telemetry_data.append({
-                    "time": timestamp,
-                    "success": int(success),
-                    "file": uploaded_file.name
-                })
-
             # --- Call / Talkgroup activity ---
-            if "ProcessEvent event ev_sdm_" in line or "Received PMSG from Call Management" in line:
-                timestamp = last_gps_time
-                call_data.append({
-                    "time": timestamp,
-                    "event": line.strip(),
-                    "file": uploaded_file.name
-                })
+            if line.startswith("CALL"):
+                # приклад: 31/10/25 01:05:03 CALL  : [181] ProcessEvent event ev_sdm_speaker_volume(46) in state st_idle
+                m = re.match(r"(\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*event (\S+)", line)
+                if m:
+                    ts_str, event_name = m.groups()
+                    try:
+                        ts = datetime.strptime(ts_str, "%d/%m/%y %H:%M:%S")
+                    except Exception:
+                        ts = last_gps_time
+                    call_data.append({
+                        "time": ts,
+                        "event": event_name,
+                        "file": uploaded_file.name
+                    })
 
         all_gps_points.extend(gps_points)
         summary_data.append({
@@ -133,7 +140,7 @@ if uploaded_files:
     else:
         st.warning("No GPS points found in the uploaded files.")
 
-    # --- Вивід WiFi RSSI ---
+    # --- WiFi RSSI ---
     if wifi_data:
         st.subheader("WiFi RSSI over time")
         df_wifi = pd.DataFrame(wifi_data).dropna(subset=["time"]).sort_values("time")
@@ -141,7 +148,7 @@ if uploaded_files:
             df_file = df_wifi[df_wifi["file"] == file_name]
             st.line_chart(df_file.set_index("time")["rssi"], height=300)
     else:
-        st.warning("No WiFi RSSI data found in the uploaded files.")
+        st.warning("No WiFi RSSI data found.")
 
     # --- SDM Traffic ---
     if sdm_data:
@@ -152,55 +159,35 @@ if uploaded_files:
         df_sdm_sec["Total"] = df_sdm_sec.sum(axis=1)
         st.line_chart(df_sdm_sec, height=300)
     else:
-        st.warning("No SDM Data found in the uploaded files.")
+        st.warning("No SDM Data found.")
 
-    # --- WAN connectivity ---
-    if wan_data:
-        st.subheader("WAN Connectivity over time")
-        df_wan = pd.DataFrame(wan_data).dropna(subset=["time"]).sort_values("time")
-        for file_name in df_wan["file"].unique():
-            df_file = df_wan[df_wan["file"] == file_name]
-            df_file_plot = pd.get_dummies(df_file.set_index("time")["wan"])
-            st.line_chart(df_file_plot, height=200)
+    # --- LTE CSQ ---
+    if lte_data:
+        st.subheader("LTE Signal Quality (CSQ) over time")
+        df_lte = pd.DataFrame(lte_data).dropna(subset=["time"]).sort_values("time")
+        for file_name in df_lte["file"].unique():
+            df_file = df_lte[df_lte["file"] == file_name]
+            st.line_chart(df_file.set_index("time")["csq"], height=300)
     else:
-        st.warning("No WAN connectivity data found.")
+        st.warning("No LTE data found.")
 
-    # --- Telemetry ---
-    if telemetry_data:
-        st.subheader("Telemetry send success/failure over time")
-        df_tele = pd.DataFrame(telemetry_data).dropna(subset=["time"]).sort_values("time")
-        for file_name in df_tele["file"].unique():
-            df_file = df_tele[df_tele["file"] == file_name]
-            st.line_chart(df_file.set_index("time")["success"], height=200)
+    # --- Service Status ---
+    if service_status_data:
+        st.subheader("Service Status over time (1=In Service, 0=Out of Service)")
+        df_status = pd.DataFrame(service_status_data).dropna(subset=["time"])
+        df_status["second"] = df_status["time"].dt.floor("S")
+        df_status_sec = df_status.groupby(["second", "service"])["status"].max().unstack(fill_value=0)
+        st.line_chart(df_status_sec, height=300)
     else:
-        st.warning("No telemetry data found.")
+        st.warning("No service status data found.")
 
-  # --- Call / Talkgroup activity (графік) ---
-if call_data:
-    st.subheader("Call / Talkgroup activity timeline")
-    df_call = pd.DataFrame(call_data).dropna(subset=["time"]).sort_values("time")
-    
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    
-    for file_name in df_call["file"].unique():
-        df_file = df_call[df_call["file"] == file_name].copy()
-        # Виберемо категорії подій для кольорів (короткі позначки)
-        df_file["event_type"] = df_file["event"].apply(lambda x: x.split()[0])  # наприклад: "ProcessEvent", "Received"
-        
-        plt.figure(figsize=(12, 2))
-        sns.scatterplot(
-            data=df_file,
-            x="time",
-            y=["event_type"]*len(df_file),  # всі точки на одній горизонталі
-            hue="event_type",
-            palette="tab10",
-            s=50
-        )
-        plt.yticks([])  # прибираємо осі Y, бо всі події на одній лінії
-        plt.xlabel("Time")
-        plt.title(f"Call / Talkgroup events: {file_name}")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-        st.pyplot(plt)
-else:
-    st.warning("No call/talkgroup activity found.")
+    # --- Call / Talkgroup activity ---
+    if call_data:
+        st.subheader("Call / Talkgroup Activity Timeline")
+        df_call = pd.DataFrame(call_data).dropna(subset=["time"])
+        df_call["second"] = df_call["time"].dt.floor("S")
+        # для графіка: показуємо кількість подій на секунду
+        df_call_sec = df_call.groupby(["second", "event"]).size().unstack(fill_value=0)
+        st.line_chart(df_call_sec, height=300)
+    else:
+        st.warning("No Call / Talkgroup activity found.")

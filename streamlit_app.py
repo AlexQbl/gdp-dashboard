@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import re
 
-st.title("Log Analysis Dashboard")
+st.title("Log Analysis Dashboard with GPS Map")
 
 # Завантаження файлу
 uploaded_file = st.file_uploader("Upload log file", type=["log", "txt"])
@@ -23,7 +23,9 @@ if uploaded_file is not None:
         "WiFi_RSSI": [],
         "Satellite_SNR": [],
         "thread_count": [],
-        "error_count": []
+        "error_count": [],
+        "latitude": [],
+        "longitude": []
     }
 
     # Регулярні вирази для парсингу
@@ -32,6 +34,7 @@ if uploaded_file is not None:
     wifi_re = re.compile(r'WIFI RSSI:\s*(-?\d+)')
     sat_re = re.compile(r'SATELLITE SNR:\s*(\d+)')
     pasource_re = re.compile(r'PASource:.*thread count\((\d+)\).*error count\((\d+)\)')
+    gps_re = re.compile(r'LAT:\s*(-?\d+\.\d+)\s+LON:\s*(-?\d+\.\d+)')
 
     for line in lines:
         ts_match = timestamp_re.search(line)
@@ -40,11 +43,12 @@ if uploaded_file is not None:
         else:
             continue  # Якщо рядок без таймштампу — пропускаємо
 
-        # Парсимо LTE CSQ
+        # Парсимо дані
         lte_match = lte_re.search(line)
         wifi_match = wifi_re.search(line)
         sat_match = sat_re.search(line)
         pasource_match = pasource_re.search(line)
+        gps_match = gps_re.search(line)
 
         data["timestamp"].append(ts)
         data["LTE_CSQ"].append(int(lte_match.group(1)) if lte_match else None)
@@ -56,6 +60,12 @@ if uploaded_file is not None:
         else:
             data["thread_count"].append(None)
             data["error_count"].append(None)
+        if gps_match:
+            data["latitude"].append(float(gps_match.group(1)))
+            data["longitude"].append(float(gps_match.group(2)))
+        else:
+            data["latitude"].append(None)
+            data["longitude"].append(None)
 
     # Перетворимо у DataFrame
     df = pd.DataFrame(data)
@@ -64,6 +74,7 @@ if uploaded_file is not None:
     st.subheader("Raw Data Sample")
     st.dataframe(df.head(20))
 
+    # Графіки сигналу
     st.subheader("LTE CSQ over Time")
     fig1 = px.line(df, x="timestamp", y="LTE_CSQ", title="LTE Signal Strength (CSQ)")
     st.plotly_chart(fig1, use_container_width=True)
@@ -79,3 +90,20 @@ if uploaded_file is not None:
     st.subheader("Thread Count and Error Count over Time")
     fig4 = px.line(df, x="timestamp", y=["thread_count", "error_count"], title="Thread & Error Counts")
     st.plotly_chart(fig4, use_container_width=True)
+
+    # Карта GPS, якщо є координати
+    if df["latitude"].notna().any() and df["longitude"].notna().any():
+        st.subheader("GPS Map")
+        gps_df = df.dropna(subset=["latitude", "longitude"])
+        fig_map = px.scatter_mapbox(
+            gps_df,
+            lat="latitude",
+            lon="longitude",
+            color="LTE_CSQ",
+            size="LTE_CSQ",
+            hover_data=["timestamp", "WiFi_RSSI", "Satellite_SNR"],
+            zoom=10,
+            height=500
+        )
+        fig_map.update_layout(mapbox_style="open-street-map")
+        st.plotly_chart(fig_map, use_container_width=True)

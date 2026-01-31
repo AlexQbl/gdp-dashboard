@@ -2,35 +2,50 @@ import streamlit as st
 import json
 import pandas as pd
 
-st.title("GPS Log Visualizer")
+st.title("Multi-log GPS Visualizer")
 
-uploaded_file = st.file_uploader("Upload log file", type=["log", "txt"])
-if uploaded_file is not None:
-    try:
-        log_text = uploaded_file.read().decode("utf-8", errors="ignore")
-    except Exception as e:
-        st.error(f"Failed to read file: {e}")
-        st.stop()
+uploaded_files = st.file_uploader("Upload up to 3 log files", type=["log", "txt"], accept_multiple_files=True)
 
-    gps_points = []
+if uploaded_files:
+    all_gps_points = []
+    summary_data = []
 
-    for line in log_text.splitlines():
-        # шукаємо рядки, що містять JSON з GPS
-        if '{"status"' in line:
-            try:
-                # Витягуємо частину після першого '{'
-                json_part = line[line.index("{"):]
-                j = json.loads(json_part)
-                gps = j.get("gps", {})
-                if gps.get("fix") and "latitude" in gps and "longitude" in gps:
-                    gps_points.append((gps["latitude"], gps["longitude"]))
-            except Exception:
-                continue
+    for uploaded_file in uploaded_files:
+        try:
+            log_text = uploaded_file.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            st.error(f"Failed to read file {uploaded_file.name}: {e}")
+            continue
 
-    st.write(f"GPS points extracted: {len(gps_points)}")
+        gps_points = []
 
-    if gps_points:
-        df = pd.DataFrame(gps_points, columns=["lat", "lon"])
-        st.map(df)
+        for line in log_text.splitlines():
+            if '{"status"' in line:
+                try:
+                    json_part = line[line.index("{"):]
+                    j = json.loads(json_part)
+                    gps = j.get("gps", {})
+                    if gps.get("fix") and "latitude" in gps and "longitude" in gps:
+                        gps_points.append({
+                            "lat": gps["latitude"],
+                            "lon": gps["longitude"],
+                            "file": uploaded_file.name
+                        })
+                except Exception:
+                    continue
+
+        all_gps_points.extend(gps_points)
+        summary_data.append({
+            "file": uploaded_file.name,
+            "gps_points": len(gps_points)
+        })
+
+    st.write("GPS points extracted per file:")
+    st.dataframe(pd.DataFrame(summary_data))
+
+    if all_gps_points:
+        df = pd.DataFrame(all_gps_points)
+        st.write(f"Total GPS points: {len(df)}")
+        st.map(df[["lat", "lon"]])
     else:
-        st.warning("No GPS points found in the log.")
+        st.warning("No GPS points found in the uploaded files.")

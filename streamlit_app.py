@@ -166,14 +166,30 @@ if uploaded_files:
         st.warning("No WAN connectivity data found.")
 
     # --- Telemetry ---
-    if telemetry_data:
-        st.subheader("Telemetry send success/failure over time")
-        df_tele = pd.DataFrame(telemetry_data).dropna(subset=["time"]).sort_values("time")
-        for file_name in df_tele["file"].unique():
-            df_file = df_tele[df_tele["file"] == file_name]
-            st.line_chart(df_file.set_index("time")["success"], height=200)
-    else:
-        st.warning("No telemetry data found.")
+   # --- Telemetry ---
+if telemetry_data:
+    st.subheader("Telemetry send success/failure over time")
+    df_tele = pd.DataFrame(telemetry_data).dropna(subset=["time"]).sort_values("time")
+    for file_name in df_tele["file"].unique():
+        df_file = df_tele[df_tele["file"] == file_name]
+
+        # Додаємо колонку "status" для кольорів
+        df_file["status"] = df_file["success"].map({1: "SUCCESS", 0: "FAILURE"})
+
+        # Altair chart
+        chart = alt.Chart(df_file).mark_circle(size=60).encode(
+            x="time:T",
+            y=alt.value(0),  # всі точки на одній горизонтальній лінії
+            color=alt.Color("status:N", scale=alt.Scale(domain=["SUCCESS","FAILURE"], range=["green","red"])),
+            tooltip=["time:T","status:N"]
+        ).properties(
+            width=800,
+            height=100
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+else:
+    st.warning("No telemetry data found.")
 
     # --- Call / Talkgroup activity ---
     if call_data:

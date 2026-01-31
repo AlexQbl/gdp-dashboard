@@ -114,8 +114,6 @@ if uploaded_files:
         })
 
     # --- Вивід GPS ---
-    st.subheader("GPS points extracted per file:")
-    st.dataframe(pd.DataFrame(summary_data))
 
     if all_gps_points:
         st.subheader("Map of all GPS points:")

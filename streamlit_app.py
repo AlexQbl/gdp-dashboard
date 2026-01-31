@@ -27,7 +27,6 @@ if uploaded_files:
             continue
 
         gps_points = []
-        last_gps_time = None
 
         for line in log_text.splitlines():
             # --- GPS & WiFi RSSI ---
@@ -52,14 +51,14 @@ if uploaded_files:
                         try:
                             dt_str = f"{date} {utc_time}"
                             dt = datetime.strptime(dt_str, "%d%m%y %H%M%S.%f")
-                            last_gps_time = dt
                         except Exception:
-                            dt = last_gps_time
-                        wifi_data.append({
-                            "time": dt,
-                            "rssi": rssi,
-                            "file": uploaded_file.name
-                        })
+                            dt = None
+                        if dt:
+                            wifi_data.append({
+                                "time": dt,
+                                "rssi": rssi,
+                                "file": uploaded_file.name
+                            })
 
                     wan_in_use = j.get("status", {}).get("wanInUse")
                     if dt:
@@ -78,7 +77,7 @@ if uploaded_files:
                     direction = match.group(1)
                     hex_bytes = match.group(2).split()
                     byte_count = len(hex_bytes)
-                    timestamp = last_gps_time if last_gps_time else None
+                    timestamp = None
                     sdm_data.append({
                         "time": timestamp,
                         "bytes": byte_count,
@@ -88,7 +87,7 @@ if uploaded_files:
 
             # --- Telemetry send success/failure ---
             if "SendRegHeartbeat" in line or "handleRegHeartbeatResp" in line:
-                timestamp = last_gps_time
+                timestamp = None
                 success = "SUCCESS" in line
                 telemetry_data.append({
                     "time": timestamp,
@@ -96,20 +95,20 @@ if uploaded_files:
                     "file": uploaded_file.name
                 })
 
-            # --- Call / Talkgroup activity (парсимо час з рядка) ---
-            match_call = re.search(r"(\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*(ProcessEvent|Received PMSG)", line)
-            if match_call:
-                dt_str = match_call.group(1)  # '31/10/25 01:24:11'
-                try:
-                    timestamp = datetime.strptime(dt_str, "%d/%m/%y %H:%M:%S")
-                except Exception:
-                    timestamp = None
-                if timestamp:
-                    call_data.append({
-                        "time": timestamp,
-                        "event": line.strip(),
-                        "file": uploaded_file.name
-                    })
+            # --- Call / Talkgroup activity ---
+            # Беремо рядки з тегами CALL або IVH
+            if "CALL" in line or "IVH" in line:
+                match_time = re.match(r"(\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})", line)
+                if match_time:
+                    try:
+                        timestamp = datetime.strptime(match_time.group(1), "%d/%m/%y %H:%M:%S")
+                        call_data.append({
+                            "time": timestamp,
+                            "event": line.strip(),
+                            "file": uploaded_file.name
+                        })
+                    except Exception:
+                        continue
 
         all_gps_points.extend(gps_points)
         summary_data.append({
@@ -139,10 +138,11 @@ if uploaded_files:
     if sdm_data:
         st.subheader("SDM Traffic per second")
         df_sdm = pd.DataFrame(sdm_data).dropna(subset=["time"])
-        df_sdm["second"] = df_sdm["time"].dt.floor("S")
-        df_sdm_sec = df_sdm.groupby(["second", "direction"])["bytes"].sum().unstack(fill_value=0)
-        df_sdm_sec["Total"] = df_sdm_sec.sum(axis=1)
-        st.line_chart(df_sdm_sec, height=300)
+        if not df_sdm.empty:
+            df_sdm["second"] = df_sdm["time"].dt.floor("S")
+            df_sdm_sec = df_sdm.groupby(["second", "direction"])["bytes"].sum().unstack(fill_value=0)
+            df_sdm_sec["Total"] = df_sdm_sec.sum(axis=1)
+            st.line_chart(df_sdm_sec, height=300)
     else:
         st.warning("No SDM Data found in the uploaded files.")
 
@@ -176,7 +176,7 @@ if uploaded_files:
         df_call = pd.DataFrame(call_data).dropna(subset=["time"])
         if not df_call.empty:
             df_call["second"] = df_call["time"].dt.floor("S")
-            df_call_count = df_call.groupby(["file", "second"]).size().unstack(level=0, fill_value=0)
+            df_call_count = df_call.groupby(["second"]).size()
             st.line_chart(df_call_count, height=300)
     else:
         st.warning("No call/talkgroup activity found.")

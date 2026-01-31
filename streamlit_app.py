@@ -175,6 +175,7 @@ if uploaded_files:
     else:
         st.warning("No telemetry data found.")
 
+
     # --- Call / Talkgroup activity ---
     if call_data:
         st.subheader("Call / Talkgroup activity timeline")

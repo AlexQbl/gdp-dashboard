@@ -3,24 +3,22 @@ import json
 import pandas as pd
 from datetime import datetime
 import re
-import altair as alt
 
 st.title("GPS, SDM & System Activity Visualizer")
-
-# --- Ініціалізація змінних тут, щоб уникнути NameError ---
-all_gps_points = []
-summary_data = []
-wifi_data = []
-sdm_data = []
-wan_data = []
-telemetry_data = []
-call_data = []
 
 uploaded_files = st.file_uploader(
     "Upload up to 3 log files", type=["log", "txt"], accept_multiple_files=True
 )
 
 if uploaded_files:
+    all_gps_points = []
+    summary_data = []
+    wifi_data = []
+    sdm_data = []
+    wan_data = []
+    telemetry_data = []
+    call_data = []
+
     for uploaded_file in uploaded_files:
         try:
             log_text = uploaded_file.read().decode("utf-8", errors="ignore")
@@ -91,7 +89,16 @@ if uploaded_files:
                     })
 
             # --- Telemetry send success/failure ---
-            if "SendRegHeartbeat" in line or "handleRegHeartbeatResp" in line:
+            if "SendRegHeartbeat" in line:
+                timestamp = last_gps_time
+                success = "SUCCESS" in line
+                telemetry_data.append({
+                    "time": timestamp,
+                    "success": int(success),
+                    "file": uploaded_file.name
+                })
+
+            if "handleRegHeartbeatResp" in line:
                 timestamp = last_gps_time
                 success = "SUCCESS" in line
                 telemetry_data.append({
@@ -114,3 +121,67 @@ if uploaded_files:
             "file": uploaded_file.name,
             "gps_points": len(gps_points)
         })
+
+    # --- Вивід GPS ---
+    st.subheader("GPS points extracted per file:")
+    st.dataframe(pd.DataFrame(summary_data))
+
+    if all_gps_points:
+        st.subheader("Map of all GPS points:")
+        df_gps = pd.DataFrame(all_gps_points)
+        st.map(df_gps[["lat", "lon"]])
+    else:
+        st.warning("No GPS points found in the uploaded files.")
+
+    # --- Вивід WiFi RSSI ---
+    if wifi_data:
+        st.subheader("WiFi RSSI over time")
+        df_wifi = pd.DataFrame(wifi_data).dropna(subset=["time"]).sort_values("time")
+        for file_name in df_wifi["file"].unique():
+            df_file = df_wifi[df_wifi["file"] == file_name]
+            st.line_chart(df_file.set_index("time")["rssi"], height=300)
+    else:
+        st.warning("No WiFi RSSI data found in the uploaded files.")
+
+    # --- SDM Traffic ---
+    if sdm_data:
+        st.subheader("SDM Traffic per second")
+        df_sdm = pd.DataFrame(sdm_data).dropna(subset=["time"])
+        df_sdm["second"] = df_sdm["time"].dt.floor("S")
+        df_sdm_sec = df_sdm.groupby(["second", "direction"])["bytes"].sum().unstack(fill_value=0)
+        df_sdm_sec["Total"] = df_sdm_sec.sum(axis=1)
+        st.line_chart(df_sdm_sec, height=300)
+    else:
+        st.warning("No SDM Data found in the uploaded files.")
+
+    # --- WAN connectivity ---
+    if wan_data:
+        st.subheader("WAN Connectivity over time")
+        df_wan = pd.DataFrame(wan_data).dropna(subset=["time"]).sort_values("time")
+        for file_name in df_wan["file"].unique():
+            df_file = df_wan[df_wan["file"] == file_name]
+            df_file_plot = pd.get_dummies(df_file.set_index("time")["wan"])
+            st.line_chart(df_file_plot, height=200)
+    else:
+        st.warning("No WAN connectivity data found.")
+
+    # --- Telemetry ---
+    if telemetry_data:
+        st.subheader("Telemetry send success/failure over time")
+        df_tele = pd.DataFrame(telemetry_data).dropna(subset=["time"]).sort_values("time")
+        for file_name in df_tele["file"].unique():
+            df_file = df_tele[df_tele["file"] == file_name]
+            st.line_chart(df_file.set_index("time")["success"], height=200)
+    else:
+        st.warning("No telemetry data found.")
+
+    # --- Call / Talkgroup activity ---
+    if call_data:
+        st.subheader("Call / Talkgroup activity timeline")
+        df_call = pd.DataFrame(call_data).dropna(subset=["time"]).sort_values("time")
+        for file_name in df_call["file"].unique():
+            df_file = df_call[df_call["file"] == file_name]
+            st.write(f"Events in {file_name}:")
+            st.dataframe(df_file[["time", "event"]])
+    else:
+        st.warning("No call/talkgroup activity found.")

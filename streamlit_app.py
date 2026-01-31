@@ -175,13 +175,32 @@ if uploaded_files:
     else:
         st.warning("No telemetry data found.")
 
-    # --- Call / Talkgroup activity ---
-    if call_data:
-        st.subheader("Call / Talkgroup activity timeline")
-        df_call = pd.DataFrame(call_data).dropna(subset=["time"]).sort_values("time")
-        for file_name in df_call["file"].unique():
-            df_file = df_call[df_call["file"] == file_name]
-            st.write(f"Events in {file_name}:")
-            st.dataframe(df_file[["time", "event"]])
-    else:
-        st.warning("No call/talkgroup activity found.")
+  # --- Call / Talkgroup activity (графік) ---
+if call_data:
+    st.subheader("Call / Talkgroup activity timeline")
+    df_call = pd.DataFrame(call_data).dropna(subset=["time"]).sort_values("time")
+    
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
+    for file_name in df_call["file"].unique():
+        df_file = df_call[df_call["file"] == file_name].copy()
+        # Виберемо категорії подій для кольорів (короткі позначки)
+        df_file["event_type"] = df_file["event"].apply(lambda x: x.split()[0])  # наприклад: "ProcessEvent", "Received"
+        
+        plt.figure(figsize=(12, 2))
+        sns.scatterplot(
+            data=df_file,
+            x="time",
+            y=["event_type"]*len(df_file),  # всі точки на одній горизонталі
+            hue="event_type",
+            palette="tab10",
+            s=50
+        )
+        plt.yticks([])  # прибираємо осі Y, бо всі події на одній лінії
+        plt.xlabel("Time")
+        plt.title(f"Call / Talkgroup events: {file_name}")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        st.pyplot(plt)
+else:
+    st.warning("No call/talkgroup activity found.")

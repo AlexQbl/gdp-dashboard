@@ -167,15 +167,13 @@ if uploaded_files:
     else:
         st.warning("No telemetry data found.")
 
-    # --- Call / Talkgroup activity (кількість подій на хвилину) ---
+    # --- Call / Talkgroup activity (список подій) ---
     if call_data:
-        st.subheader("Call / Talkgroup activity over time (count per minute)")
-        df_call = pd.DataFrame(call_data).dropna(subset=["time"])
-        if not df_call.empty:
-            # Групуємо по хвилинах
-            df_call["minute"] = df_call["time"].dt.floor("T")
-            # Підрахунок кількості подій по файлу
-            df_call_count = df_call.groupby(["file", "minute"]).size().unstack(level=0, fill_value=0)
-            st.line_chart(df_call_count, height=300)
+        st.subheader("Call / Talkgroup events")
+        df_call = pd.DataFrame(call_data).dropna(subset=["time"]).sort_values("time")
+        for file_name in df_call["file"].unique():
+            st.write(f"Events in {file_name}:")
+            df_file = df_call[df_call["file"] == file_name]
+            st.dataframe(df_file[["time", "event"]])
     else:
         st.warning("No call/talkgroup activity found.")

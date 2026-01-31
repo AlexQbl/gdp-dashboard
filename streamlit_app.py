@@ -12,7 +12,7 @@ if uploaded_files:
     all_gps_points = []
     summary_data = []
 
-    # Старий робочий паттерн для JSON GPS
+    # Паттерн для JSON у рядках (вбудований JSON)
     json_pattern = re.compile(r'\{.*"gps":\s*\{.*?\}.*\}')
 
     for uploaded_file in uploaded_files:
@@ -34,7 +34,7 @@ if uploaded_files:
                 try:
                     data = json.loads(json_str)
                     gps = data.get("gps", {})
-                    # Перевіряємо, що є fix і координати
+                    # Перевіряємо, що GPS зафіксований і координати існують
                     if gps.get("fix") and gps.get("latitude") is not None and gps.get("longitude") is not None:
                         gps_points.append({
                             "latitude": gps["latitude"],

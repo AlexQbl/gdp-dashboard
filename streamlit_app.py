@@ -4,7 +4,7 @@ import re
 import json
 import plotly.express as px
 
-st.title("Multi-log Analyzer (GPS extraction fixed)")
+st.title("Multi-log GPS Analyzer")
 
 uploaded_files = st.file_uploader("Upload up to 3 log files", type=["log", "txt"], accept_multiple_files=True)
 
@@ -12,8 +12,8 @@ if uploaded_files:
     all_gps_points = []
     summary_data = []
 
-    # Регулярка для пошуку JSON всередині рядка
-    json_pattern = re.compile(r'(\{.*"gps":.*\})')
+    # Старий робочий паттерн для JSON GPS
+    json_pattern = re.compile(r'\{.*"gps":\s*\{.*?\}.*\}')
 
     for uploaded_file in uploaded_files:
         try:
@@ -30,14 +30,15 @@ if uploaded_files:
         for line in log_text.splitlines():
             match = json_pattern.search(line)
             if match:
-                json_str = match.group(1)
+                json_str = match.group(0)
                 try:
                     data = json.loads(json_str)
                     gps = data.get("gps", {})
-                    if gps.get("fix") and gps.get("latitude") and gps.get("longitude"):
+                    # Перевіряємо, що є fix і координати
+                    if gps.get("fix") and gps.get("latitude") is not None and gps.get("longitude") is not None:
                         gps_points.append({
-                            "latitude": gps.get("latitude"),
-                            "longitude": gps.get("longitude"),
+                            "latitude": gps["latitude"],
+                            "longitude": gps["longitude"],
                             "altitude": gps.get("altitude"),
                             "timestamp": gps.get("tssec"),
                             "file": uploaded_file.name

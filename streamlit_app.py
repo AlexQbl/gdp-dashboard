@@ -44,7 +44,6 @@ if uploaded_files:
                             "file": uploaded_file.name
                         })
 
-                    # WiFi RSSI
                     wlan = j.get("wlanAsClientStatus", {})
                     rssi = wlan.get("rssi")
                     utc_time = gps.get("utc")
@@ -62,7 +61,6 @@ if uploaded_files:
                             "file": uploaded_file.name
                         })
 
-                    # WAN connectivity
                     wan_in_use = j.get("status", {}).get("wanInUse")
                     if dt:
                         wan_data.append({
@@ -98,14 +96,20 @@ if uploaded_files:
                     "file": uploaded_file.name
                 })
 
-            # --- Call / Talkgroup activity ---
-            if "ProcessEvent event ev_sdm_" in line or "Received PMSG from Call Management" in line:
-                timestamp = last_gps_time
-                call_data.append({
-                    "time": timestamp,
-                    "event": line.strip(),
-                    "file": uploaded_file.name
-                })
+            # --- Call / Talkgroup activity (парсимо час з рядка) ---
+            match_call = re.search(r"(\d{2}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}).*(ProcessEvent|Received PMSG)", line)
+            if match_call:
+                dt_str = match_call.group(1)  # '31/10/25 01:24:11'
+                try:
+                    timestamp = datetime.strptime(dt_str, "%d/%m/%y %H:%M:%S")
+                except Exception:
+                    timestamp = None
+                if timestamp:
+                    call_data.append({
+                        "time": timestamp,
+                        "event": line.strip(),
+                        "file": uploaded_file.name
+                    })
 
         all_gps_points.extend(gps_points)
         summary_data.append({
@@ -159,7 +163,6 @@ if uploaded_files:
         df_tele = pd.DataFrame(telemetry_data).dropna(subset=["time"]).sort_values("time")
         for file_name in df_tele["file"].unique():
             df_file = df_tele[df_tele["file"] == file_name]
-            # Показуємо Success зеленим, Failure червоним
             df_plot = df_file.set_index("time")[["success"]]
             df_plot["Success"] = df_plot["success"].apply(lambda x: x if x == 1 else None)
             df_plot["Failure"] = df_plot["success"].apply(lambda x: x if x == 0 else None)
@@ -169,12 +172,10 @@ if uploaded_files:
 
     # --- Call / Talkgroup activity (кількість подій у секунду) ---
     if call_data:
-        st.subheader("Call / Talkgroup activity (events per second)")
+        st.subheader("Call / Talkgroup activity over time (count per second)")
         df_call = pd.DataFrame(call_data).dropna(subset=["time"])
         if not df_call.empty:
-            # Округлюємо час до секунди
             df_call["second"] = df_call["time"].dt.floor("S")
-            # Підрахунок кількості подій на секунду
             df_call_count = df_call.groupby(["file", "second"]).size().unstack(level=0, fill_value=0)
             st.line_chart(df_call_count, height=300)
     else:

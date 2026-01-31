@@ -4,17 +4,18 @@ import re
 import json
 import plotly.express as px
 
-st.title("Multi-log Analyzer")
+st.title("Multi-log Analyzer (GPS extraction fixed)")
 
-# Дозволяємо завантажити до 3 файлів одночасно
 uploaded_files = st.file_uploader("Upload up to 3 log files", type=["log", "txt"], accept_multiple_files=True)
 
 if uploaded_files:
     all_gps_points = []
     summary_data = []
 
+    # Регулярка для пошуку JSON всередині рядка
+    json_pattern = re.compile(r'(\{.*"gps":.*\})')
+
     for uploaded_file in uploaded_files:
-        # Спроба прочитати файл з автоматичним визначенням кодування
         try:
             log_text = uploaded_file.read().decode("utf-8")
         except UnicodeDecodeError:
@@ -26,29 +27,25 @@ if uploaded_files:
 
         gps_points = []
 
-        # Регулярний вираз для пошуку JSON рядків з GPS
-        json_pattern = re.compile(r'\{.*"gps":.*\}')
-
         for line in log_text.splitlines():
             match = json_pattern.search(line)
             if match:
+                json_str = match.group(1)
                 try:
-                    data = json.loads(match.group())
+                    data = json.loads(json_str)
                     gps = data.get("gps", {})
                     if gps.get("fix") and gps.get("latitude") and gps.get("longitude"):
                         gps_points.append({
                             "latitude": gps.get("latitude"),
                             "longitude": gps.get("longitude"),
-                            "altitude": gps.get("altitude", None),
-                            "timestamp": gps.get("tssec", None),
+                            "altitude": gps.get("altitude"),
+                            "timestamp": gps.get("tssec"),
                             "file": uploaded_file.name
                         })
                 except json.JSONDecodeError:
                     continue
 
         all_gps_points.extend(gps_points)
-
-        # Додатково: можна зберегти інші дані для аналізу
         summary_data.append({
             "file": uploaded_file.name,
             "gps_points": len(gps_points)
@@ -61,7 +58,6 @@ if uploaded_files:
         gps_df = pd.DataFrame(all_gps_points)
         st.write(f"Total GPS points: {len(gps_df)}")
 
-        # Карта Plotly
         fig = px.scatter_mapbox(
             gps_df,
             lat="latitude",

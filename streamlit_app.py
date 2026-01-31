@@ -1,60 +1,66 @@
 import streamlit as st
-import json
 import pandas as pd
-import pydeck as pdk
+import folium
+from streamlit_folium import st_folium
+import re
+import json
 
-st.title("GPS Map from Log File")
+st.title("GPS Log Visualizer")
 
-uploaded_file = st.file_uploader("Upload your log file", type=["log", "txt"])
+# Завантаження файлу
+uploaded_file = st.file_uploader("Завантаж файл логів", type=["log", "txt"])
 
 if uploaded_file:
-    # Читаємо файл і ігноруємо некоректні символи
-    log_text = uploaded_file.read().decode("utf-8", errors="ignore")
-    lines = log_text.split("\n")
+    try:
+        # Читаємо файл у текст
+        log_text = uploaded_file.read().decode("utf-8", errors="ignore")
 
-    gps_data = []
+        # Витягаємо JSON об'єкти зі строк
+        json_matches = re.findall(r'(\{.*?\})', log_text, re.DOTALL)
+        gps_data = []
 
-    for line in lines:
-        if "{" in line and "}" in line:
+        for jm in json_matches:
             try:
-                # Витягуємо JSON частину
-                json_part = line[line.index("{"):line.rindex("}")+1]
-                obj = json.loads(json_part)
-                gps = obj.get("gps", {})
-                if gps.get("fix", 0) > 0:
-                    gps_data.append({
-                        "latitude": gps.get("latitude"),
-                        "longitude": gps.get("longitude"),
-                        "altitude": gps.get("altitude"),
-                        "hdop": gps.get("hdop"),
-                        "timestamp": gps.get("tssec")
-                    })
-            except json.JSONDecodeError:
-                continue
+                obj = json.loads(jm)
+                if "gps" in obj:
+                    gps = obj["gps"]
+                    if gps.get("fix", 0) > 0:  # тільки якщо GPS зафіксовано
+                        gps_data.append({
+                            "latitude": gps.get("latitude"),
+                            "longitude": gps.get("longitude"),
+                            "altitude": gps.get("altitude"),
+                            "tssec": gps.get("tssec")
+                        })
+            except Exception as e:
+                continue  # ігноруємо помилки JSON
 
-    if gps_data:
-        df = pd.DataFrame(gps_data)
+        st.write(f"GPS points extracted: {len(gps_data)}")
 
-        st.write("GPS points extracted:", len(df))
+        if gps_data:
+            df = pd.DataFrame(gps_data)
 
-        # Відображаємо карту через pydeck
-        st.pydeck_chart(pdk.Deck(
-            map_style='mapbox://styles/mapbox/light-v10',
-            initial_view_state=pdk.ViewState(
-                latitude=df['latitude'].mean(),
-                longitude=df['longitude'].mean(),
-                zoom=10,
-                pitch=0,
-            ),
-            layers=[
-                pdk.Layer(
-                    "ScatterplotLayer",
-                    data=df,
-                    get_position='[longitude, latitude]',
-                    get_color='[200, 30, 0, 160]',
-                    get_radius=50,
-                ),
-            ],
-        ))
-    else:
-        st.warning("No valid GPS points found in the log.")
+            # Середня точка для центру карти
+            center_lat = df['latitude'].mean()
+            center_lon = df['longitude'].mean()
+
+            # Створюємо карту
+            m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
+
+            # Додаємо маркери
+            for _, row in df.iterrows():
+                folium.CircleMarker(
+                    location=[row['latitude'], row['longitude']],
+                    radius=5,
+                    color='red',
+                    fill=True,
+                    fill_opacity=0.7,
+                    popup=f"Alt: {row['altitude']} m, TS: {row['tssec']}"
+                ).add_to(m)
+
+            # Відображаємо карту у Streamlit
+            st_folium(m, width=700, height=500)
+        else:
+            st.warning("Не знайдено GPS точок у файлі.")
+
+    except Exception as e:
+        st.error(f"Помилка обробки файлу: {e}")

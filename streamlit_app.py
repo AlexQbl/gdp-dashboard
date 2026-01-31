@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import re
 
-st.title("GPS, SDM & System Activity Visualizer")
+st.title("LOGS Visualizer")
 
 uploaded_files = st.file_uploader(
     "Upload up to 3 log files", type=["log", "txt"], accept_multiple_files=True

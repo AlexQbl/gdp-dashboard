@@ -114,7 +114,6 @@ if uploaded_files:
         })
 
     # --- Вивід GPS ---
-
     if all_gps_points:
         st.subheader("Map of all GPS points:")
         df_gps = pd.DataFrame(all_gps_points)
@@ -168,13 +167,15 @@ if uploaded_files:
     else:
         st.warning("No telemetry data found.")
 
-    # --- Call / Talkgroup activity (кількість подій) ---
+    # --- Call / Talkgroup activity (кількість подій на хвилину) ---
     if call_data:
-        st.subheader("Call / Talkgroup activity over time (count per second)")
+        st.subheader("Call / Talkgroup activity over time (count per minute)")
         df_call = pd.DataFrame(call_data).dropna(subset=["time"])
         if not df_call.empty:
-            df_call["second"] = df_call["time"].dt.floor("S")
-            df_call_count = df_call.groupby(["file", "second"]).size().unstack(level=0, fill_value=0)
+            # Групуємо по хвилинах
+            df_call["minute"] = df_call["time"].dt.floor("T")
+            # Підрахунок кількості подій по файлу
+            df_call_count = df_call.groupby(["file", "minute"]).size().unstack(level=0, fill_value=0)
             st.line_chart(df_call_count, height=300)
     else:
         st.warning("No call/talkgroup activity found.")

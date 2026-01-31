@@ -2,63 +2,80 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import re
-import io
 
-st.title("Лог-аналітика IVH/SDM")
+st.title("Log Analysis Dashboard")
 
 # Завантаження файлу
-uploaded_file = st.file_uploader("Завантажте лог-файл", type=["log", "txt"])
+uploaded_file = st.file_uploader("Upload log file", type=["log", "txt"])
 
 if uploaded_file is not None:
-    # Читаємо файл як текст
-    text_io = io.TextIOWrapper(uploaded_file, encoding="utf-8")
-    log_text = text_io.read()
-
-    # Рядки логів
+    # Читаємо файл як байти та декодуємо, ігноруючи некоректні символи
+    bytes_data = uploaded_file.read()
+    log_text = bytes_data.decode("utf-8", errors="ignore")
+    
+    # Розбиваємо на рядки
     lines = log_text.splitlines()
+    
+    # Дані для графіків
+    data = {
+        "timestamp": [],
+        "LTE_CSQ": [],
+        "WiFi_RSSI": [],
+        "Satellite_SNR": [],
+        "thread_count": [],
+        "error_count": []
+    }
 
-    # Підготовка списку для DataFrame
-    data = []
-
-    # Регекспи для витягання метрик
-    csq_re = re.compile(r"LTE CSQ:\s*(-?\d+)")
-    rssi_re = re.compile(r"WIFI RSSI:\s*(-?\d+)")
-    snr_re = re.compile(r"SATELLITE SNR:\s*(-?\d+)")
-    thread_re = re.compile(r"thread count\((\d+)\)")
-
-    time_re = re.compile(r"(\d{1,2}/\d{1,2}/\d{2,4} \d{2}:\d{2}:\d{2})")
+    # Регулярні вирази для парсингу
+    timestamp_re = re.compile(r'^(\d{1,2}/\d{1,2}/\d{2,4} \d{2}:\d{2}:\d{2})')
+    lte_re = re.compile(r'LTE CSQ:\s*(-?\d+)')
+    wifi_re = re.compile(r'WIFI RSSI:\s*(-?\d+)')
+    sat_re = re.compile(r'SATELLITE SNR:\s*(\d+)')
+    pasource_re = re.compile(r'PASource:.*thread count\((\d+)\).*error count\((\d+)\)')
 
     for line in lines:
-        timestamp_match = time_re.search(line)
-        if timestamp_match:
-            timestamp = timestamp_match.group(1)
+        ts_match = timestamp_re.search(line)
+        if ts_match:
+            ts = ts_match.group(1)
         else:
-            continue
+            continue  # Якщо рядок без таймштампу — пропускаємо
 
-        csq = csq_re.search(line)
-        rssi = rssi_re.search(line)
-        snr = snr_re.search(line)
-        thread = thread_re.search(line)
+        # Парсимо LTE CSQ
+        lte_match = lte_re.search(line)
+        wifi_match = wifi_re.search(line)
+        sat_match = sat_re.search(line)
+        pasource_match = pasource_re.search(line)
 
-        data.append({
-            "timestamp": timestamp,
-            "LTE_CSQ": int(csq.group(1)) if csq else None,
-            "WiFi_RSSI": int(rssi.group(1)) if rssi else None,
-            "Satellite_SNR": int(snr.group(1)) if snr else None,
-            "Thread_Count": int(thread.group(1)) if thread else None
-        })
+        data["timestamp"].append(ts)
+        data["LTE_CSQ"].append(int(lte_match.group(1)) if lte_match else None)
+        data["WiFi_RSSI"].append(int(wifi_match.group(1)) if wifi_match else None)
+        data["Satellite_SNR"].append(int(sat_match.group(1)) if sat_match else None)
+        if pasource_match:
+            data["thread_count"].append(int(pasource_match.group(1)))
+            data["error_count"].append(int(pasource_match.group(2)))
+        else:
+            data["thread_count"].append(None)
+            data["error_count"].append(None)
 
-    # Створення DataFrame
+    # Перетворимо у DataFrame
     df = pd.DataFrame(data)
-
-    # Конвертація timestamp у datetime
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="%d/%m/%y %H:%M:%S")
 
-    st.subheader("Таблиця з витягнутими метриками")
-    st.dataframe(df)
+    st.subheader("Raw Data Sample")
+    st.dataframe(df.head(20))
 
-    # Побудова графіків
-    metrics = ["LTE_CSQ", "WiFi_RSSI", "Satellite_SNR", "Thread_Count"]
-    for metric in metrics:
-        fig = px.line(df, x="timestamp", y=metric, title=f"{metric} по часу")
-        st.plotly_chart(fig)
+    st.subheader("LTE CSQ over Time")
+    fig1 = px.line(df, x="timestamp", y="LTE_CSQ", title="LTE Signal Strength (CSQ)")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.subheader("WiFi RSSI over Time")
+    fig2 = px.line(df, x="timestamp", y="WiFi_RSSI", title="WiFi Signal Strength (RSSI)")
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("Satellite SNR over Time")
+    fig3 = px.line(df, x="timestamp", y="Satellite_SNR", title="Satellite SNR")
+    st.plotly_chart(fig3, use_container_width=True)
+
+    st.subheader("Thread Count and Error Count over Time")
+    fig4 = px.line(df, x="timestamp", y=["thread_count", "error_count"], title="Thread & Error Counts")
+    st.plotly_chart(fig4, use_container_width=True)
